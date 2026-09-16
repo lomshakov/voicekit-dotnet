@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <PackageId>VoiceKit.Client</PackageId>
+    <Version>0.2.0</Version>
+    <Authors>VoiceKit</Authors>
+    <Description>Official C#/.NET SDK for VoiceKit (synthesis, transcription, analysis, moderation, batches).</Description>
+    <PackageTags>tts;speech;synthesis;transcription;stt;voice;russian</PackageTags>
+    <PackageProjectUrl>https://ttsapi.ru</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/lomshakov/voicekit-dotnet</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+
+    <RootNamespace>VoiceKit</RootNamespace>
+    <AssemblyName>VoiceKit.Client</AssemblyName>
+
+    <!-- The root Directory.Build.props enables strict analyzers for the API;
+         relax them for this standalone, published library. -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <AnalysisLevel>none</AnalysisLevel>
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+  </PropertyGroup>
+
+  <!-- The examples/ console app lives inside this folder; keep it out of the
+       library compilation so its source and generated obj files are not swept in. -->
+  <ItemGroup>
+    <Compile Remove="examples\**\*.cs" />
+    <None Remove="examples\**\*" />
+    <EmbeddedResource Remove="examples\**\*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

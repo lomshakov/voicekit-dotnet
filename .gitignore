@@ -1,0 +1,20 @@
+# Build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+
+# NuGet artifacts
+*.nupkg
+*.snupkg
+artifacts/
+
+# IDE / user settings
+*.user
+*.suo
+.vs/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
