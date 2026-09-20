@@ -635,6 +635,49 @@ public sealed class VoiceKitClient : IDisposable
     public Task<byte[]> QaExportAsync(string format = "csv", int days = 30, CancellationToken ct = default) =>
         GetBytesAsync($"/v1/qa/evaluations/export?format={Uri.EscapeDataString(format)}&days={days}", ct);
 
+    // ──────────────────────── Search & Q&A (7.6) ────────────────────────
+
+    /// <summary>
+    /// Hybrid semantic/full-text search over recordings (Pro/Business).
+    /// <paramref name="keywords"/> enables full-text ranking (tsvector);
+    /// <paramref name="from"/>/<paramref name="to"/> are ISO-8601 UTC
+    /// timestamps, <paramref name="source"/> is upload|link|bot|stream and
+    /// <paramref name="speaker"/> a diarization label such as SPEAKER_00.
+    /// </summary>
+    public Task<JsonNode?> SearchAsync(
+        string query,
+        int? limit = null,
+        string? keywords = null,
+        string? source = null,
+        string? speaker = null,
+        string? from = null,
+        string? to = null,
+        double? minDurationSeconds = null,
+        double? maxDurationSeconds = null,
+        CancellationToken ct = default)
+        => PostJsonAsync(
+            "/v1/search",
+            new Dictionary<string, object?>
+            {
+                ["query"] = query,
+                ["limit"] = limit,
+                ["keywords"] = keywords,
+                ["source"] = source,
+                ["speaker"] = speaker,
+                ["from"] = from,
+                ["to"] = to,
+                ["min_duration_seconds"] = minDurationSeconds,
+                ["max_duration_seconds"] = maxDurationSeconds,
+            },
+            ct);
+
+    /// <summary>Answer a question over recordings (RAG) with verbatim citations.</summary>
+    public Task<JsonNode?> AskAsync(string query, CancellationToken ct = default)
+        => PostJsonAsync(
+            "/v1/ask",
+            new Dictionary<string, object?> { ["query"] = query },
+            ct);
+
     // ──────────────────────── Streaming (WebSocket) ────────────────────
 
     /// <summary>

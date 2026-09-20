@@ -128,6 +128,21 @@ byte[] clean = await client.DownloadAudioCleaningAsync(cleanJob!["job_id"]!.GetV
 await File.WriteAllBytesAsync("voice_clean.wav", clean);
 ```
 
+### Search & Q&A (Pro/Business)
+
+```csharp
+// Hybrid semantic/full-text search over your recordings
+var hits = await client.SearchAsync("почему клиент отказался?", limit: 5, keywords: "дорого", source: "upload");
+foreach (var hit in hits!["hits"]!.AsArray())
+    Console.WriteLine($"{hit!["score"]} {hit!["start"]} {hit!["text"]}");
+
+// RAG question with verbatim citations
+var answer = await client.AskAsync("почему клиент отказался от Pro?");
+Console.WriteLine(answer!["answer"]);
+foreach (var c in answer!["citations"]!.AsArray())
+    Console.WriteLine($"{c!["recording_id"]} {c!["start"]} {c!["quote"]}");
+```
+
 ### WebSocket streaming (Pro/Business)
 
 ```csharp
