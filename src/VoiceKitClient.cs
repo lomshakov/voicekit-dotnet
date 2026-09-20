@@ -539,6 +539,102 @@ public sealed class VoiceKitClient : IDisposable
     public Task<JsonNode?> BillingBalanceAsync(CancellationToken ct = default) =>
         GetJsonAsync("/v1/billing/balance", ct);
 
+    // ──────────────────────── Recordings ───────────────────────────────
+
+    /// <summary>List the caller's recordings (newest first).</summary>
+    public Task<JsonNode?> ListRecordingsAsync(
+        string? source = null,
+        int limit = 20,
+        int offset = 0,
+        CancellationToken ct = default)
+    {
+        var query = new List<string> { $"limit={limit}", $"offset={offset}" };
+        if (!string.IsNullOrWhiteSpace(source))
+            query.Add($"source={Uri.EscapeDataString(source)}");
+        return GetJsonAsync($"/v1/recordings?{string.Join("&", query)}", ct);
+    }
+
+    /// <summary>Return a recording's metadata.</summary>
+    public Task<JsonNode?> GetRecordingAsync(string recordingId, CancellationToken ct = default) =>
+        GetJsonAsync($"/v1/recordings/{recordingId}", ct);
+
+    /// <summary>Return a recording's transcript.</summary>
+    public Task<JsonNode?> GetRecordingTranscriptAsync(string recordingId, CancellationToken ct = default) =>
+        GetJsonAsync($"/v1/recordings/{recordingId}/transcript", ct);
+
+    /// <summary>Delete a recording and its stored audio.</summary>
+    public async Task DeleteRecordingAsync(string recordingId, CancellationToken ct = default)
+    {
+        using var request = NewRequest(HttpMethod.Delete, $"/v1/recordings/{recordingId}");
+        using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+        await EnsureSuccessAsync(response).ConfigureAwait(false);
+    }
+
+    /// <summary>Download a recording's stored audio.</summary>
+    public Task<byte[]> DownloadRecordingAudioAsync(string recordingId, CancellationToken ct = default) =>
+        GetBytesAsync($"/v1/recordings/{recordingId}/audio", ct);
+
+    /// <summary>Export a recording's transcript (txt|md|srt|vtt|docx).</summary>
+    public Task<byte[]> ExportRecordingAsync(string recordingId, string format = "txt", CancellationToken ct = default) =>
+        GetBytesAsync($"/v1/recordings/{recordingId}/export?format={Uri.EscapeDataString(format)}", ct);
+
+    /// <summary>Create a public share link for a recording.</summary>
+    public Task<JsonNode?> CreateShareAsync(
+        string recordingId,
+        int? expiresInSeconds = null,
+        string? password = null,
+        CancellationToken ct = default) =>
+        PostJsonAsync(
+            $"/v1/recordings/{recordingId}/share",
+            Compact(("expires_in_seconds", expiresInSeconds), ("password", password)),
+            ct);
+
+    /// <summary>List the active share links for a recording.</summary>
+    public Task<JsonNode?> ListSharesAsync(string recordingId, CancellationToken ct = default) =>
+        GetJsonAsync($"/v1/recordings/{recordingId}/share", ct);
+
+    /// <summary>Revoke a share link.</summary>
+    public async Task RevokeShareAsync(string recordingId, string token, CancellationToken ct = default)
+    {
+        using var request = NewRequest(HttpMethod.Delete, $"/v1/recordings/{recordingId}/share/{token}");
+        using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+        await EnsureSuccessAsync(response).ConfigureAwait(false);
+    }
+
+    // ──────────────────────── Call QA (7.7) ────────────────────────────
+
+    /// <summary>
+    /// Evaluate a recording against a QA checklist (Pro/Business). When
+    /// <paramref name="webhookUrl"/> is set, a <c>qa.violation</c> event is
+    /// POSTed there if the call is flagged as a violation.
+    /// </summary>
+    public Task<JsonNode?> QaEvaluateAsync(
+        string recordingId,
+        IEnumerable<object> checklist,
+        string? webhookUrl = null,
+        CancellationToken ct = default)
+        => PostJsonAsync(
+            "/v1/qa/evaluate",
+            new Dictionary<string, object?>
+            {
+                ["recording_id"] = recordingId,
+                ["checklist"] = checklist,
+                ["webhook_url"] = webhookUrl,
+            },
+            ct);
+
+    /// <summary>Aggregated QA analytics: score trend, top violations, score by operator.</summary>
+    public Task<JsonNode?> QaAnalyticsAsync(int days = 30, CancellationToken ct = default) =>
+        GetJsonAsync($"/v1/qa/analytics?days={days}", ct);
+
+    /// <summary>List the caller's persisted QA evaluations (newest first).</summary>
+    public Task<JsonNode?> QaEvaluationsAsync(int limit = 20, int offset = 0, CancellationToken ct = default) =>
+        GetJsonAsync($"/v1/qa/evaluations?limit={limit}&offset={offset}", ct);
+
+    /// <summary>Export QA evaluations as CSV/JSON for CRM import.</summary>
+    public Task<byte[]> QaExportAsync(string format = "csv", int days = 30, CancellationToken ct = default) =>
+        GetBytesAsync($"/v1/qa/evaluations/export?format={Uri.EscapeDataString(format)}&days={days}", ct);
+
     // ──────────────────────── Streaming (WebSocket) ────────────────────
 
     /// <summary>
