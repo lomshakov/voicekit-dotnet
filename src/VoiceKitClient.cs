@@ -247,16 +247,23 @@ public sealed class VoiceKitClient : IDisposable
 
     // ──────────────────────── Transcription ────────────────────────────
 
-    /// <summary>Start an async transcription job; poll with <see cref="GetTranscriptionJobAsync"/>.</summary>
+    /// <summary>
+    /// Start an async transcription job; poll with <see cref="GetTranscriptionJobAsync"/>.
+    /// <paramref name="clean"/> runs one-click audio cleaning (denoise + normalize)
+    /// before transcription (Pro/Business); <paramref name="longForm"/> enables
+    /// long-form transcription for files up to 512 MB / 4 h.
+    /// </summary>
     public Task<JsonNode?> TranscribeAsync(
         AudioSource audio,
         string? language = null,
         bool diarization = false,
         string? webhookUrl = null,
         IEnumerable<string>? keyterms = null,
+        bool clean = false,
+        bool longForm = false,
         CancellationToken ct = default)
     {
-        var form = TranscribeForm(language, diarization, webhookUrl, keyterms);
+        var form = TranscribeForm(language, diarization, webhookUrl, keyterms, clean, longForm);
         return PostFormAsync("/v1/transcribe", new[] { ("audio", audio.Read(), audio.FileName, "audio/wav") }, form, ct);
     }
 
@@ -266,9 +273,10 @@ public sealed class VoiceKitClient : IDisposable
         string? language = null,
         bool diarization = false,
         IEnumerable<string>? keyterms = null,
+        bool clean = false,
         CancellationToken ct = default)
     {
-        var form = TranscribeForm(language, diarization, webhookUrl: null, keyterms);
+        var form = TranscribeForm(language, diarization, webhookUrl: null, keyterms, clean);
         return PostFormAsync("/v1/transcribe/sync", new[] { ("audio", audio.Read(), audio.FileName, "audio/wav") }, form, ct);
     }
 
@@ -276,14 +284,36 @@ public sealed class VoiceKitClient : IDisposable
     public Task<JsonNode?> GetTranscriptionJobAsync(string jobId, CancellationToken ct = default) =>
         GetJsonAsync($"/v1/transcribe/{jobId}", ct);
 
-    /// <summary>Download VTT/SRT subtitles for a completed transcription job.</summary>
-    public async Task<string> SubtitlesAsync(string jobId, string format = "vtt", CancellationToken ct = default)
+    /// <summary>
+    /// Download VTT/SRT subtitles for a completed transcription job. Optionally
+    /// translate the captions (<paramref name="targetLanguage"/>) and mark
+    /// fast/unclear speech (<paramref name="hotMarks"/>).
+    /// </summary>
+    public async Task<string> SubtitlesAsync(
+        string jobId,
+        string format = "vtt",
+        string? targetLanguage = null,
+        bool hotMarks = false,
+        CancellationToken ct = default)
     {
-        using var request = NewRequest(HttpMethod.Get, $"/v1/transcribe/{jobId}/subtitles?format={Uri.EscapeDataString(format)}");
+        var query = new List<string> { $"format={Uri.EscapeDataString(format)}" };
+        if (!string.IsNullOrWhiteSpace(targetLanguage))
+            query.Add($"target_language={Uri.EscapeDataString(targetLanguage)}");
+        if (hotMarks)
+            query.Add("hot_marks=true");
+
+        using var request = NewRequest(HttpMethod.Get, $"/v1/transcribe/{jobId}/subtitles?{string.Join("&", query)}");
         using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
         await EnsureSuccessAsync(response).ConfigureAwait(false);
         return await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
     }
+
+    /// <summary>Translate a completed transcription job's transcript (timestamps and speakers preserved).</summary>
+    public Task<JsonNode?> TranslateTranscriptAsync(string jobId, string targetLanguage, CancellationToken ct = default) =>
+        PostJsonAsync(
+            $"/v1/transcribe/{jobId}/translate",
+            new Dictionary<string, object?> { ["target_language"] = targetLanguage },
+            ct);
 
     /// <summary>Detect speech segments in an audio file (Silero VAD).</summary>
     public Task<JsonNode?> VadAsync(AudioSource audio, CancellationToken ct = default) =>
@@ -350,9 +380,10 @@ public sealed class VoiceKitClient : IDisposable
         bool diarization = false,
         string? webhookUrl = null,
         IEnumerable<string>? keyterms = null,
+        bool clean = false,
         CancellationToken ct = default)
     {
-        var form = TranscribeForm(language, diarization, webhookUrl, keyterms);
+        var form = TranscribeForm(language, diarization, webhookUrl, keyterms, clean);
         return PostFormAsync("/v1/analyze", new[] { ("audio", audio.Read(), audio.FileName, "audio/wav") }, form, ct);
     }
 
@@ -365,6 +396,7 @@ public sealed class VoiceKitClient : IDisposable
         bool keywords = true,
         bool entities = true,
         IEnumerable<string>? keyterms = null,
+        bool clean = false,
         CancellationToken ct = default)
     {
         var form = new List<KeyValuePair<string, string?>>
@@ -374,6 +406,7 @@ public sealed class VoiceKitClient : IDisposable
             new("emotions", emotions ? "true" : "false"),
             new("keywords", keywords ? "true" : "false"),
             new("entities", entities ? "true" : "false"),
+            new("clean", clean ? "true" : "false"),
         };
         AddKeyterms(form, keyterms);
         return PostFormAsync("/v1/analyze/sync", new[] { ("audio", audio.Read(), audio.FileName, "audio/wav") }, form, ct);
@@ -554,6 +587,13 @@ public sealed class VoiceKitClient : IDisposable
         return GetJsonAsync($"/v1/recordings?{string.Join("&", query)}", ct);
     }
 
+    /// <summary>
+    /// Start a diarized transcription from a public audio URL (Link channel).
+    /// The server downloads the file; the recording is tagged with source "link".
+    /// </summary>
+    public Task<JsonNode?> StartRecordingFromLinkAsync(string url, string? language = null, CancellationToken ct = default) =>
+        PostJsonAsync("/v1/recordings/from-link", Compact(("url", url), ("language", language)), ct);
+
     /// <summary>Return a recording's metadata.</summary>
     public Task<JsonNode?> GetRecordingAsync(string recordingId, CancellationToken ct = default) =>
         GetJsonAsync($"/v1/recordings/{recordingId}", ct);
@@ -561,6 +601,22 @@ public sealed class VoiceKitClient : IDisposable
     /// <summary>Return a recording's transcript.</summary>
     public Task<JsonNode?> GetRecordingTranscriptAsync(string recordingId, CancellationToken ct = default) =>
         GetJsonAsync($"/v1/recordings/{recordingId}/transcript", ct);
+
+    /// <summary>Fetch a recording's speakers, timeline and conversation metrics.</summary>
+    public Task<JsonNode?> GetRecordingSpeakersAsync(string recordingId, CancellationToken ct = default) =>
+        GetJsonAsync($"/v1/recordings/{recordingId}/speakers", ct);
+
+    /// <summary>Rename a speaker or assign a role (operator/client/participant).</summary>
+    public Task<JsonNode?> UpdateRecordingSpeakerAsync(
+        string recordingId,
+        string speakerId,
+        string? displayName = null,
+        string? role = null,
+        CancellationToken ct = default) =>
+        PatchJsonAsync(
+            $"/v1/recordings/{recordingId}/speakers/{Uri.EscapeDataString(speakerId)}",
+            Compact(("display_name", displayName), ("role", role)),
+            ct);
 
     /// <summary>Delete a recording and its stored audio.</summary>
     public async Task DeleteRecordingAsync(string recordingId, CancellationToken ct = default)
@@ -678,6 +734,42 @@ public sealed class VoiceKitClient : IDisposable
             new Dictionary<string, object?> { ["query"] = query },
             ct);
 
+    // ──────────────────────── Meeting intelligence ────────────────────
+
+    /// <summary>
+    /// Generate a meeting protocol (TL;DR, decisions, tasks, risks, next steps)
+    /// from a recording's transcript. <paramref name="template"/> is
+    /// custom|standup|demo|interview|retro|one_on_one.
+    /// </summary>
+    public Task<JsonNode?> MeetingProtocolAsync(string recordingId, string template = "custom", CancellationToken ct = default) =>
+        PostJsonAsync(
+            "/v1/meetings/protocol",
+            new Dictionary<string, object?> { ["recording_id"] = recordingId, ["template"] = template },
+            ct);
+
+    // ──────────────────────── Speech evaluation (WER) ──────────────────
+
+    /// <summary>
+    /// Evaluate speech quality against a reference text: the clip is
+    /// transcribed and aligned to the reference with a word error rate.
+    /// Set <paramref name="normalize"/> to false to keep case and punctuation.
+    /// </summary>
+    public Task<JsonNode?> EvaluateAsync(
+        AudioSource audio,
+        string reference,
+        string? language = null,
+        bool? normalize = null,
+        CancellationToken ct = default)
+    {
+        var form = new List<KeyValuePair<string, string?>> { new("reference", reference) };
+        if (language is not null)
+            form.Add(new("language", language));
+        if (normalize is { } norm)
+            form.Add(new("normalize", norm ? "true" : "false"));
+
+        return PostFormAsync("/v1/eval", new[] { ("audio", audio.Read(), audio.FileName, "audio/wav") }, form, ct);
+    }
+
     // ──────────────────────── Streaming (WebSocket) ────────────────────
 
     /// <summary>
@@ -730,6 +822,16 @@ public sealed class VoiceKitClient : IDisposable
     private async Task<JsonNode?> PostJsonAsync(string path, object body, CancellationToken ct)
     {
         using var request = NewRequest(HttpMethod.Post, path);
+        request.Content = JsonContent(JsonSerializer.Serialize(body, JsonOptions));
+        using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+        await EnsureSuccessAsync(response).ConfigureAwait(false);
+        var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        return string.IsNullOrWhiteSpace(text) ? null : JsonNode.Parse(text);
+    }
+
+    private async Task<JsonNode?> PatchJsonAsync(string path, object body, CancellationToken ct)
+    {
+        using var request = NewRequest(HttpMethod.Patch, path);
         request.Content = JsonContent(JsonSerializer.Serialize(body, JsonOptions));
         using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
         await EnsureSuccessAsync(response).ConfigureAwait(false);
@@ -858,14 +960,19 @@ public sealed class VoiceKitClient : IDisposable
         string? language,
         bool diarization,
         string? webhookUrl,
-        IEnumerable<string>? keyterms)
+        IEnumerable<string>? keyterms,
+        bool clean = false,
+        bool longForm = false)
     {
         var form = new List<KeyValuePair<string, string?>>
         {
             new("language", language),
             new("diarization", diarization ? "true" : "false"),
             new("webhookUrl", webhookUrl),
+            new("clean", clean ? "true" : "false"),
         };
+        if (longForm)
+            form.Add(new KeyValuePair<string, string?>("longForm", "true"));
         AddKeyterms(form, keyterms);
         return form;
     }

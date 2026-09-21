@@ -184,6 +184,28 @@ var profiles = await client.ListVoiceProfilesAsync();
 await client.DeleteVoiceProfileAsync(profile!["profile_id"]!.GetValue<string>());
 ```
 
+### Recordings, QA & meeting intelligence (Pro/Business)
+
+```csharp
+// Recordings library (list / link channel / speakers)
+var recordings = await client.ListRecordingsAsync(limit: 10);
+var job = await client.StartRecordingFromLinkAsync("https://example.com/call.mp3"); // Link channel
+var speakers = await client.GetRecordingSpeakersAsync(recordingId);
+await client.UpdateRecordingSpeakerAsync(recordingId, "SPEAKER_00", displayName: "Alice", role: "operator");
+
+// Call QA
+var qa = await client.QaEvaluateAsync(recordingId, new object[] { new { id = "greeting", kind = "required", description = "..." } });
+var trend = await client.QaAnalyticsAsync(days: 30);
+byte[] csv = await client.QaExportAsync(format: "csv");
+
+// Meeting protocol
+var protocol = await client.MeetingProtocolAsync(recordingId, template: "standup");
+
+// Translation & speech evaluation
+var translated = await client.TranslateTranscriptAsync(jobId, targetLanguage: "en");
+var wer = await client.EvaluateAsync("audio.wav", reference: "Ожидаемый текст");
+```
+
 ## Examples
 
 A runnable console app lives in [`examples/`](./examples): synthesis, streaming,
